@@ -495,7 +495,9 @@ class FineTunerBase(AlgorithmBase):
             else torch.device("cpu")
         )
 
-        print(self.device)
+        import os
+
+        os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
     def train(self):
         self._mode = "train"
@@ -503,23 +505,44 @@ class FineTunerBase(AlgorithmBase):
     def eval(self):
         self._mode = "eval"
 
+    def count_trainable_parameters(self):
+
+        return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+
     def init_model(self, inner_model, num_labels):
         inner_model_name = inner_model.name
+        print(f"Initializing model: {inner_model_name}")
         assert isinstance(inner_model_name, str), "Model name must be a string"
+        assert isinstance(num_labels, int) and num_labels > 0, "num_labels must be a positive integer"
 
         self.config = AutoConfig.from_pretrained(
             inner_model_name,
             num_labels=num_labels,
-            hidden_dropout_prob=self.dropout_rate,
-            attention_probs_dropout_prob=self.dropout_rate,
+            hidden_dropout_prob=(
+                self.dropout_rate if hasattr(self, "dropout_rate") else 0
+            ),
+            attention_probs_dropout_prob=(
+                self.dropout_rate if hasattr(self, "dropout_rate") else 0
+            ),
             trust_remote_code=True,
         )
-        self.tokenizer = AutoTokenizer.from_pretrained(inner_model_name, use_fast=True)
-        self.model = AutoModelForSequenceClassification.from_pretrained(
-            inner_model_name,
-            config=self.config,
-            trust_remote_code=True,
-        )
+        
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(inner_model_name, use_fast=True)
+        except Exception as e:
+            print(f"Error loading tokenizer for model '{inner_model_name}': {e}")
+            raise e
+
+        try:
+            self.model = AutoModelForSequenceClassification.from_pretrained(
+                inner_model_name,
+                config=self.config,
+                trust_remote_code=True,
+            )
+        except Exception as e:
+            print(f"Error loading model for '{inner_model_name}': {e}")
+            raise e
+        
         self.model.to(self.device)
 
         if self.tokenizer.pad_token is None:
@@ -534,6 +557,25 @@ class FineTunerBase(AlgorithmBase):
                 f"Model max length is {max_model_length} and the provided max length is {self.max_length}. Using the tokenizer max length."
             )
             self.max_length = min(self.max_length, max_model_length)
+
+    @staticmethod
+    def get_num_workers(num_workers_option):
+        import math
+        import os
+
+        print("here2")
+        total_cpus = os.cpu_count()
+        if num_workers_option == "all":
+            return total_cpus
+        elif num_workers_option == "3/4":
+            return max(1, math.floor(0.75 * total_cpus))
+        elif num_workers_option == "half":
+            return max(1, math.floor(0.5 * total_cpus))
+        elif num_workers_option == "1/4":
+            return max(1, math.floor(0.25 * total_cpus))
+        else:
+            # Default to 1 if unrecognized option
+            return 0
 
     def setup_optimizer(self):
         if self.optimizer == "adamw":
@@ -635,14 +677,23 @@ class FineTuneLLMEmbeddingClassifier(FineTunerBase):
         inner_model: algorithm(*[Word, VectorContinuous], include=["transformer"]),  # type: ignore
         batch_size: CategoricalValue(2, 4, 8, 16, 32, 64, 128, 256),  # type: ignore
         max_length: CategoricalValue(64, 128, 256, 512, 1024, 2048, 4096),  # type: ignore
-        learning_rate: CategoricalValue(1e-5, 2e-5, 3e-5, 4e-5, 5e-5, 1e-4, 1e-6),  # type: ignore
-        epochs: DiscreteValue(1, 15),  # type: ignore
-        warmup_steps: CategoricalValue(0, 100, 500, 1000, 2000),  # type: ignore
-        weight_decay: CategoricalValue(0, 0.01, 0.1),  # type: ignore
-        optimizer: CategoricalValue("adamw", "adam", "sgd", "adagrad"),  # type: ignore
+        learning_rate: CategoricalValue(5e-6, 1e-5, 2e-5, 3e-5, 4e-5, 5e-5, 1e-4),  # type: ignore
+        epochs: DiscreteValue(1, 10),  # type: ignore
+        warmup_steps: CategoricalValue(0, 100, 500, 1000, 1500, 2000),  # type: ignore
+        weight_decay: CategoricalValue(0, 0.001, 0.005, 0.01, 0.1),  # type: ignore
         dropout_rate: CategoricalValue(0.1, 0.2, 0.3, 0.4, 0.5),  # type: ignore
+        optimizer: CategoricalValue("adamw", "adam", "sgd", "adagrad"),  # type: ignore
         gradient_accumulation_steps: CategoricalValue(1, 2, 4, 8, 16),  # type: ignore
         lr_scheduler: CategoricalValue("linear", "cosine", "cosine_with_restarts", "polynomial", "constant"),  # type: ignore
+        # New parameters to control features
+        use_early_stopping: BooleanValue(),  # type: ignore
+        early_stopping_patience: DiscreteValue(1, 10),  # type: ignore
+        early_stopping_delta: CategoricalValue(0.0, 0.001, 0.005, 0.01),  # type: ignore
+        use_mixed_precision: BooleanValue(),  # type: ignore
+        use_gradient_clipping: BooleanValue(),  # type: ignore
+        gradient_clipping_max_norm: CategoricalValue(0.5, 1.0, 5.0),  # type: ignore
+        class_weighted_loss: BooleanValue(),  # type: ignore
+        num_workers: CategoricalValue("all", "3/4", "half", "1/4", "default"),  # type: ignore
     ):
         self.model = None
         self.tokenizer = None
@@ -657,6 +708,16 @@ class FineTuneLLMEmbeddingClassifier(FineTunerBase):
         self.optimizer = optimizer
         self.gradient_accumulation_steps = gradient_accumulation_steps
         self.lr_scheduler = lr_scheduler
+
+        # New parameters for added features
+        self.use_early_stopping = use_early_stopping
+        self.early_stopping_patience = early_stopping_patience
+        self.early_stopping_delta = early_stopping_delta
+        self.use_mixed_precision = use_mixed_precision
+        self.use_gradient_clipping = use_gradient_clipping
+        self.gradient_clipping_max_norm = gradient_clipping_max_norm
+        self.class_weighted_loss = class_weighted_loss
+        self.num_workers = num_workers
         super().__init__()
 
     def finetune(self, X, y):
@@ -665,13 +726,45 @@ class FineTuneLLMEmbeddingClassifier(FineTunerBase):
         num_labels = len(np.unique(y))
         self.init_model(self.inner_model, num_labels)
 
+        # Handle class imbalance
+        if self.class_weighted_loss:
+            y_int = np.array(y, dtype=int)
+            class_counts = np.bincount(y_int)
+            class_weights = 1.0 / class_counts
+            class_weights = torch.FloatTensor(class_weights).to(self.device)
+            loss_fn = nn.CrossEntropyLoss(weight=class_weights)
+        else:
+            loss_fn = nn.CrossEntropyLoss()
+
+        # Create dataset and dataloader
         dataset = SimpleTextDataset(X, y, self.tokenizer, max_length=self.max_length)
-        dataloader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
+        num_workers = self.get_num_workers(self.num_workers)
+
+        dataloader = DataLoader(
+            dataset,
+            batch_size=self.batch_size,
+            shuffle=True,
+            num_workers=num_workers,
+        )
 
         optimizer = self.setup_optimizer()
         total_steps = len(dataloader) * self.epochs
         scheduler = self.setup_scheduler(optimizer, total_steps)
 
+        print(f"trainable parameters: {self.count_trainable_parameters()}")
+
+        # Initialize early stopping variables
+        if self.use_early_stopping:
+            epochs_no_improve = 0
+
+        # Initialize mixed precision scaler
+        if self.use_mixed_precision and self.device.type == "cuda":
+            scaler = torch.amp.GradScaler("cuda")
+            use_mixed_precision = True
+        else:
+            use_mixed_precision = False
+
+        previous_loss = None
         for epoch in range(self.epochs):
             self.model.train()
             total_loss = 0
@@ -685,19 +778,42 @@ class FineTuneLLMEmbeddingClassifier(FineTunerBase):
                 }
                 labels = batch["labels"].to(self.device)
 
-                outputs = self.model(**inputs, labels=labels)
+                if use_mixed_precision:
+                    with torch.amp.autocast("cuda"):
+                        outputs = self.model(**inputs)
+                        loss = loss_fn(outputs.logits, labels)
+                else:
+                    outputs = self.model(**inputs)
+                    loss = loss_fn(outputs.logits, labels)
 
                 loss = (
-                    outputs.loss / self.gradient_accumulation_steps
-                    if self.gradient_accumulation_steps > 0
-                    else outputs.loss
+                    loss / self.gradient_accumulation_steps
+                    if self.gradient_accumulation_steps > 1
+                    else loss
                 )
-                loss.backward()
+
+                if use_mixed_precision:
+                    scaler.scale(loss).backward()
+                else:
+                    loss.backward()
+
+                # Gradient clipping
+                if self.use_gradient_clipping:
+                    if use_mixed_precision:
+                        scaler.unscale_(optimizer)
+                    nn.utils.clip_grad_norm_(
+                        self.model.parameters(),
+                        max_norm=self.gradient_clipping_max_norm,
+                    )
 
                 if (step + 1) % self.gradient_accumulation_steps == 0 or (
                     step + 1
                 ) == len(dataloader):
-                    optimizer.step()
+                    if use_mixed_precision:
+                        scaler.step(optimizer)
+                        scaler.update()
+                    else:
+                        optimizer.step()
                     scheduler.step()
                     optimizer.zero_grad()
 
@@ -705,6 +821,31 @@ class FineTuneLLMEmbeddingClassifier(FineTunerBase):
 
             avg_loss = total_loss / len(dataloader)
             print(f"Epoch {epoch+1}/{self.epochs}, Training Loss: {avg_loss}")
+
+            # Early stopping based on training loss plateau
+            if self.use_early_stopping:
+                if previous_loss is not None:
+                    loss_diff = previous_loss - avg_loss
+                    if loss_diff < self.early_stopping_delta:
+                        epochs_no_improve += 1
+                        print(
+                            f"Epoch {epoch+1}: Training loss did not improve by at least {self.early_stopping_delta}. ({epochs_no_improve}/{self.early_stopping_patience})"
+                        )
+                    else:
+                        epochs_no_improve = 0
+                        print(f"Epoch {epoch+1}: Training loss improved.")
+
+                    if epochs_no_improve >= self.early_stopping_patience:
+                        print(
+                            "Early stopping triggered due to no improvement in training loss."
+                        )
+                        break
+                else:
+                    print(
+                        f"Epoch {epoch+1}: First epoch, setting baseline training loss."
+                    )
+
+                previous_loss = avg_loss
 
         return y
 
@@ -714,17 +855,26 @@ class PartialFineTuneLLMEmbeddingClassifier(FineTunerBase):
     def __init__(
         self,
         inner_model: algorithm(*[Word, VectorContinuous], include=["transformer"]),  # type: ignore
-        num_trainable_layers: CategoricalValue(0, 2, 4, 8, 16, 32, 64),  # type: ignore
+        num_trainable_layers: CategoricalValue(1, 2, 4, 8, 16, 32, 64),  # type: ignore
         batch_size: CategoricalValue(2, 4, 8, 16, 32, 64, 128, 256),  # type: ignore
         max_length: CategoricalValue(64, 128, 256, 512, 1024, 2048, 4096),  # type: ignore
-        learning_rate: CategoricalValue(1e-5, 2e-5, 3e-5, 4e-5, 5e-5, 1e-4, 1e-6),  # type: ignore
+        learning_rate: CategoricalValue(5e-6, 1e-5, 2e-5, 3e-5, 4e-5, 5e-5, 1e-4),  # type: ignore
         epochs: DiscreteValue(1, 10),  # type: ignore
-        warmup_steps: CategoricalValue(0, 100, 500, 1000, 2000),  # type: ignore
-        weight_decay: CategoricalValue(0, 0.01, 0.1),  # type: ignore
+        warmup_steps: CategoricalValue(0, 100, 500, 1000, 1500, 2000),  # type: ignore
+        weight_decay: CategoricalValue(0, 0.001, 0.005, 0.01, 0.1),  # type: ignore
         optimizer: CategoricalValue("adamw", "adam", "sgd", "adagrad"),  # type: ignore
         dropout_rate: CategoricalValue(0.1, 0.2, 0.3, 0.4, 0.5),  # type: ignore
         gradient_accumulation_steps: CategoricalValue(1, 2, 4, 8, 16),  # type: ignore
         lr_scheduler: CategoricalValue("linear", "cosine", "cosine_with_restarts", "polynomial", "constant"),  # type: ignore
+        # New parameters to control features
+        use_early_stopping: BooleanValue(),  # type: ignore
+        early_stopping_patience: DiscreteValue(1, 10),  # type: ignore
+        early_stopping_delta: CategoricalValue(0.0, 0.001, 0.005, 0.01),  # type: ignore
+        use_mixed_precision: BooleanValue(),  # type: ignore
+        use_gradient_clipping: BooleanValue(),  # type: ignore
+        gradient_clipping_max_norm: CategoricalValue(0.5, 1.0, 5.0),  # type: ignore
+        class_weighted_loss: BooleanValue(),  # type: ignore
+        num_workers: CategoricalValue("all", "3/4", "half", "1/4", "default"),  # type: ignore
     ):
         self.model = None
         self.tokenizer = None
@@ -740,70 +890,139 @@ class PartialFineTuneLLMEmbeddingClassifier(FineTunerBase):
         self.optimizer = optimizer
         self.gradient_accumulation_steps = gradient_accumulation_steps
         self.lr_scheduler = lr_scheduler
+
+        # New parameters for added features
+        self.use_early_stopping = use_early_stopping
+        self.early_stopping_patience = early_stopping_patience
+        self.early_stopping_delta = early_stopping_delta
+        self.use_mixed_precision = use_mixed_precision
+        self.use_gradient_clipping = use_gradient_clipping
+        self.gradient_clipping_max_norm = gradient_clipping_max_norm
+        self.class_weighted_loss = class_weighted_loss
+        self.num_workers = num_workers
         super().__init__()
 
-    def count_trainable_parameters(self):
-        return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-
     def set_freezed_layers(self):
-        # Unfreeze the specified number of layers from end to start
+        """
+        Freezes all layers initially and then unfreezes the specified number of layers
+        from the end (top) of the model. Also ensures that the classifier layers are trainable.
+        """
+        # Group layers by their number
         layer_groups = self.group_layers_by_number()
 
-        # Freeze all layers initially
+        # Freeze all parameters
         for param in self.model.parameters():
             param.requires_grad = False
 
-        # Unfreeze classifier layers and optionally other layers
+        # Unfreeze classifier layers
         classifier_params = [
             p for n, p in self.model.named_parameters() if "classifier" in n
         ]
         for param in classifier_params:
             param.requires_grad = True
 
-        # Unfreeze additional layers based on the number of layers to train
+        # Unfreeze additional layers based on num_trainable_layers
         layers_unfreezed = 0
         total_layers = len(layer_groups)
-        for layer_num in sorted(layer_groups.keys(), reverse=True):
-            if layers_unfreezed < self.num_trainable_layers:
-                for param in layer_groups[layer_num]:
-                    param.requires_grad = True
-                layers_unfreezed += 1
-            else:
-                break
 
-        # Optionally handle embeddings and other non-numbered layers
+        if total_layers == 0:
+            print(
+                "No layers matched the freezing pattern. All non-classifier parameters remain frozen."
+            )
+        else:
+            for layer_num in sorted(layer_groups.keys(), reverse=True):
+                if layers_unfreezed < self.num_trainable_layers:
+                    for param in layer_groups[layer_num]:
+                        param.requires_grad = True
+                    layers_unfreezed += 1
+                else:
+                    break
+
+        # If still need to unfreeze more layers, unfreeze non-layer parameters
         if layers_unfreezed < self.num_trainable_layers:
             non_layer_params = [
                 p
                 for n, p in self.model.named_parameters()
-                if not re.search(r"\.layer\.\d+\.", n) and "classifier" not in n
+                if not re.search(r"\.layer\.\d+\.", n)
+                and not re.search(r"\.(encoder|decoder)\.block\.\d+\.", n)
+                and "classifier" not in n
             ]
             for param in non_layer_params:
                 param.requires_grad = True
+            print(
+                f"Unfrozen additional {self.num_trainable_layers - layers_unfreezed} non-layer parameters."
+            )
+
+        # Verify that at least some parameters are trainable
+        trainable_params = [p for p in self.model.parameters() if p.requires_grad]
+        if not trainable_params:
+            raise ValueError(
+                "No trainable parameters found. Please check the layer freezing configuration."
+            )
 
     def group_layers_by_number(self):
-        # Group parameters by their layer number
+        """
+        Group parameters by their layer number for different model architectures.
+        Supports both BERT-like and T5-like layer naming conventions.
+        """
         layer_groups = {}
-        pattern = re.compile(r"\.layer\.(\d+)\.")
+
+        # Patterns for different models
+        patterns = [
+            re.compile(r"\.layer\.(\d+)\."),  # BERT-like
+            re.compile(r"\.(encoder|decoder)\.block\.(\d+)\."),  # T5-like
+        ]
+
         for name, param in self.model.named_parameters():
-            match = pattern.search(name)
-            if match:
-                layer_num = int(match.group(1))
-                if layer_num not in layer_groups:
-                    layer_groups[layer_num] = []
-                layer_groups[layer_num].append(param)
+            for pattern in patterns:
+                match = pattern.search(name)
+                if match:
+                    # For BERT-like patterns
+                    if pattern.pattern == r"\.layer\.(\d+)\.":
+                        layer_num = int(match.group(1))
+                    # For T5-like patterns
+                    else:
+                        layer_num = int(match.group(2))
+
+                    if layer_num not in layer_groups:
+                        layer_groups[layer_num] = []
+                    layer_groups[layer_num].append(param)
+                    break  # Stop checking other patterns if a match is found
+
         return layer_groups
 
     def finetune(self, X, y):
         num_labels = len(np.unique(y))
         self.init_model(self.inner_model, num_labels)
-        self.setup_dropout()
         self.set_freezed_layers()
 
-        dataset = SimpleTextDataset(
-            X, y, self.tokenizer, max_length=self.max_length
-        )  # for BERT-like models
-        dataloader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
+        # Verify that there are trainable parameters
+        trainable_params = [p for p in self.model.parameters() if p.requires_grad]
+        if not trainable_params:
+            raise ValueError("No trainable parameters found after freezing layers.")
+
+        print(f"trainable parameters: {self.count_trainable_parameters()}")
+
+        # Handle class imbalance
+        if self.class_weighted_loss:
+            y_int = np.array(y, dtype=int)
+            class_counts = np.bincount(y_int)
+            class_weights = 1.0 / class_counts
+            class_weights = torch.FloatTensor(class_weights).to(self.device)
+            loss_fn = nn.CrossEntropyLoss(weight=class_weights)
+        else:
+            loss_fn = nn.CrossEntropyLoss()
+
+        # Create dataset and dataloader
+        dataset = SimpleTextDataset(X, y, self.tokenizer, max_length=self.max_length)
+        num_workers = self.get_num_workers(self.num_workers)
+
+        dataloader = DataLoader(
+            dataset,
+            batch_size=self.batch_size,
+            shuffle=True,
+            num_workers=num_workers,
+        )
 
         optimizer = self.setup_optimizer()
         total_steps = len(dataloader) * self.epochs
@@ -811,31 +1030,100 @@ class PartialFineTuneLLMEmbeddingClassifier(FineTunerBase):
 
         print(f"trainable parameters: {self.count_trainable_parameters()}")
 
+        # Initialize early stopping variables
+        if self.use_early_stopping:
+            epochs_no_improve = 0
+
+        # Initialize mixed precision scaler
+        if self.use_mixed_precision and self.device.type == "cuda":
+            scaler = torch.amp.GradScaler("cuda")
+            use_mixed_precision = True
+        else:
+            use_mixed_precision = False
+
+        previous_loss = None
         for epoch in range(self.epochs):
             self.model.train()
             total_loss = 0
+            optimizer.zero_grad()
+
             for step, batch in enumerate(tqdm(dataloader, desc="Training")):
-                optimizer.zero_grad()
                 inputs = {
                     key: val.to(self.device)
                     for key, val in batch.items()
                     if key != "labels"
                 }
                 labels = batch["labels"].to(self.device)
-                outputs = self.model(**inputs, labels=labels)
-                loss = outputs.loss / self.gradient_accumulation_steps
-                loss.backward()
 
-                if (step + 1) % self.gradient_accumulation_steps == 0:
-                    optimizer.step()
+                if use_mixed_precision:
+                    with torch.amp.autocast("cuda"):
+                        outputs = self.model(**inputs)
+                        loss = loss_fn(outputs.logits, labels)
+                else:
+                    outputs = self.model(**inputs)
+                    loss = loss_fn(outputs.logits, labels)
+
+                loss = (
+                    loss / self.gradient_accumulation_steps
+                    if self.gradient_accumulation_steps > 1
+                    else loss
+                )
+
+                if use_mixed_precision:
+                    scaler.scale(loss).backward()
+                else:
+                    loss.backward()
+
+                # Gradient clipping
+                if self.use_gradient_clipping:
+                    if use_mixed_precision:
+                        scaler.unscale_(optimizer)
+                    nn.utils.clip_grad_norm_(
+                        self.model.parameters(),
+                        max_norm=self.gradient_clipping_max_norm,
+                    )
+
+                if (step + 1) % self.gradient_accumulation_steps == 0 or (
+                    step + 1
+                ) == len(dataloader):
+                    if use_mixed_precision:
+                        scaler.step(optimizer)
+                        scaler.update()
+                    else:
+                        optimizer.step()
                     scheduler.step()
                     optimizer.zero_grad()
 
-                total_loss += loss.item()
+                total_loss += loss.item() * self.gradient_accumulation_steps
 
-            print(
-                f"Epoch {epoch+1}/{self.epochs}, Training Loss: {total_loss / len(dataloader)}"
-            )
+            avg_loss = total_loss / len(dataloader)
+            print(f"Epoch {epoch+1}/{self.epochs}, Training Loss: {avg_loss}")
+
+            # Early stopping based on training loss plateau
+            if self.use_early_stopping:
+                if previous_loss is not None:
+                    loss_diff = previous_loss - avg_loss
+                    if loss_diff < self.early_stopping_delta:
+                        epochs_no_improve += 1
+                        print(
+                            f"Epoch {epoch+1}: Training loss did not improve by at least {self.early_stopping_delta}. ({epochs_no_improve}/{self.early_stopping_patience})"
+                        )
+                    else:
+                        epochs_no_improve = 0
+                        print(f"Epoch {epoch+1}: Training loss improved.")
+
+                    if epochs_no_improve >= self.early_stopping_patience:
+                        print(
+                            "Early stopping triggered due to no improvement in training loss."
+                        )
+                        break
+                else:
+                    print(
+                        f"Epoch {epoch+1}: First epoch, setting baseline training loss."
+                    )
+
+                previous_loss = avg_loss
+
         return y
 
 
@@ -850,16 +1138,25 @@ class LoraLLMEmbeddingClassifier(FineTunerBase):
         lora_bias: CategoricalValue("none", "all", "lora_only"),  # type: ignore
         batch_size: CategoricalValue(2, 4, 8, 16, 32, 64, 128, 256),  # type: ignore
         max_length: CategoricalValue(64, 128, 256, 512, 1024, 2048, 4096),  # type: ignore
-        learning_rate: CategoricalValue(1e-5, 2e-5, 3e-5, 4e-5, 5e-5, 1e-4, 1e-6),  # type: ignore
+        learning_rate: CategoricalValue(5e-6, 1e-5, 2e-5, 3e-5, 4e-5, 5e-5, 1e-4),  # type: ignore
         epochs: DiscreteValue(1, 10),  # type: ignore
-        warmup_steps: CategoricalValue(0, 100, 500, 1000, 2000),  # type: ignore
-        weight_decay: CategoricalValue(0, 0.01, 0.1),  # type: ignore
+        warmup_steps: CategoricalValue(0, 100, 500, 1000, 1500, 2000),  # type: ignore
+        weight_decay: CategoricalValue(0, 0.001, 0.005, 0.01, 0.1),  # type: ignore
         optimizer: CategoricalValue("adamw", "adam", "sgd", "adagrad"),  # type: ignore
         gradient_accumulation_steps: CategoricalValue(1, 2, 4, 8, 16),  # type: ignore
         lr_scheduler: CategoricalValue("linear", "cosine", "cosine_with_restarts", "polynomial", "constant"),  # type: ignore
         model_save: CategoricalValue("classifier", "all"),  # type: ignore
         init_lora_weights: CategoricalValue("gaussian", "pissa", "loftq", None),  # type: ignore
         fan_in_fan_out: CategoricalValue(True, False),  # type: ignore
+        # New parameters to control features
+        use_early_stopping: BooleanValue(),  # type: ignore
+        early_stopping_patience: DiscreteValue(1, 10),  # type: ignore
+        early_stopping_delta: CategoricalValue(0.0, 0.001, 0.005, 0.01),  # type: ignore
+        use_mixed_precision: BooleanValue(),  # type: ignore
+        use_gradient_clipping: BooleanValue(),  # type: ignore
+        gradient_clipping_max_norm: CategoricalValue(0.5, 1.0, 5.0),  # type: ignore
+        class_weighted_loss: BooleanValue(),  # type: ignore
+        num_workers: CategoricalValue("all", "3/4", "half", "1/4", "default"),  # type: ignore
     ):
         self.model = None
         self.tokenizer = None
@@ -880,6 +1177,16 @@ class LoraLLMEmbeddingClassifier(FineTunerBase):
         self.model_save = model_save
         self.init_lora_weights = init_lora_weights
         self.fan_in_fan_out = fan_in_fan_out
+
+        # New parameters for added features
+        self.use_early_stopping = use_early_stopping
+        self.early_stopping_patience = early_stopping_patience
+        self.early_stopping_delta = early_stopping_delta
+        self.use_mixed_precision = use_mixed_precision
+        self.use_gradient_clipping = use_gradient_clipping
+        self.gradient_clipping_max_norm = gradient_clipping_max_norm
+        self.class_weighted_loss = class_weighted_loss
+        self.num_workers = num_workers
         super().__init__()
 
     def set_lora_config(self, target_modules=None):
@@ -940,60 +1247,130 @@ class LoraLLMEmbeddingClassifier(FineTunerBase):
     def finetune(self, X, y):
         X, y = self._preprocess_input(X, y)
         num_labels = len(np.unique(y))
+        
         self.init_model(self.inner_model, num_labels)
+        
         self.set_lora_config()
+        
+        # Handle class imbalance
+        if self.class_weighted_loss:
+            y_int = np.array(y, dtype=int)
+            class_counts = np.bincount(y_int)
+            class_weights = 1.0 / class_counts
+            class_weights = torch.FloatTensor(class_weights).to(self.device)
+            loss_fn = nn.CrossEntropyLoss(weight=class_weights)
+        else:
+            loss_fn = nn.CrossEntropyLoss()
 
-        dataset = SimpleTextDataset(
-            X, y, self.tokenizer, max_length=self.max_length
-        )  # for BERT-like models
-        dataloader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
+        # Create dataset and dataloader
+        dataset = SimpleTextDataset(X, y, self.tokenizer, max_length=self.max_length)
+        
+        num_workers = self.get_num_workers(self.num_workers)
 
+        dataloader = DataLoader(
+            dataset,
+            batch_size=self.batch_size,
+            shuffle=True,
+            num_workers=num_workers,
+        )
+        
         optimizer = self.setup_optimizer()
+        
         total_steps = len(dataloader) * self.epochs
+        
         scheduler = self.setup_scheduler(optimizer, total_steps)
+
+        # Initialize early stopping variables
+        if self.use_early_stopping:
+            epochs_no_improve = 0
+
+        # Initialize mixed precision scaler
+        if self.use_mixed_precision and self.device.type == "cuda":
+            scaler = torch.amp.GradScaler("cuda")
+            use_mixed_precision = True
+        else:
+            use_mixed_precision = False
+
+        previous_loss = None
         for epoch in range(self.epochs):
             self.model.train()
             total_loss = 0
+            optimizer.zero_grad()
             for step, batch in enumerate(tqdm(dataloader, desc="Training")):
-                try:
-                    optimizer.zero_grad()
-                    inputs = {
-                        key: val.to(self.device)
-                        for key, val in batch.items()
-                        if key != "labels"
-                    }
-                    labels = batch["labels"].to(self.device)
+                inputs = {
+                    key: val.to(self.device)
+                    for key, val in batch.items()
+                    if key != "labels"
+                }
+                labels = batch["labels"].to(self.device)
+                if use_mixed_precision:
+                    with torch.amp.autocast("cuda"):
+                        outputs = self.model(**inputs)
+                        loss = loss_fn(outputs.logits, labels)
+                else:
+                    outputs = self.model(**inputs)
+                    loss = loss_fn(outputs.logits, labels)
 
-                    if isinstance(self.model, AutoModelForCausalLM):
-                        # Shift labels for causal language modeling
-                        outputs = self.model(
-                            input_ids=inputs["input_ids"],
-                            attention_mask=inputs["attention_mask"],
-                            labels=inputs["input_ids"],
-                        )
-                    else:
-                        outputs = self.model(**inputs, labels=labels)
+                loss = (
+                    loss / self.gradient_accumulation_steps
+                    if self.gradient_accumulation_steps > 1
+                    else loss
+                )
 
-                    loss = (
-                        outputs.loss / self.gradient_accumulation_steps
-                        if self.gradient_accumulation_steps > 0
-                        else outputs.loss
-                    )
+                if use_mixed_precision:
+                    scaler.scale(loss).backward()
+                else:
                     loss.backward()
 
-                    if (step + 1) % self.gradient_accumulation_steps == 0:
+                # Gradient clipping
+                if self.use_gradient_clipping:
+                    if use_mixed_precision:
+                        scaler.unscale_(optimizer)
+                    nn.utils.clip_grad_norm_(
+                        self.model.parameters(),
+                        max_norm=self.gradient_clipping_max_norm,
+                    )
+
+                if (step + 1) % self.gradient_accumulation_steps == 0 or (
+                    step + 1
+                ) == len(dataloader):
+                    if use_mixed_precision:
+                        scaler.step(optimizer)
+                        scaler.update()
+                    else:
                         optimizer.step()
-                        scheduler.step()
-                        optimizer.zero_grad()
+                    scheduler.step()
+                    optimizer.zero_grad()
 
-                    total_loss += loss.item()
-                except Exception as e:
-                    print("An Error occurred during finetuning")
-                    raise e
+                total_loss += loss.item() * self.gradient_accumulation_steps
 
-            print(
-                f"Epoch {epoch+1}/{self.epochs}, Training Loss: {total_loss / len(dataloader)}"
-            )
+            avg_loss = total_loss / len(dataloader)
+            print(f"Epoch {epoch+1}/{self.epochs}, Training Loss: {avg_loss}")
+
+            # Early stopping based on training loss plateau
+            if self.use_early_stopping:
+                if previous_loss is not None:
+                    loss_diff = previous_loss - avg_loss
+                    if loss_diff < self.early_stopping_delta:
+                        epochs_no_improve += 1
+                        print(
+                            f"Epoch {epoch+1}: Training loss did not improve by at least {self.early_stopping_delta}. ({epochs_no_improve}/{self.early_stopping_patience})"
+                        )
+                    else:
+                        epochs_no_improve = 0
+                        print(f"Epoch {epoch+1}: Training loss improved.")
+
+                    if epochs_no_improve >= self.early_stopping_patience:
+                        print(
+                            "Early stopping triggered due to no improvement in training loss."
+                        )
+                        break
+                else:
+                    print(
+                        f"Epoch {epoch+1}: First epoch, setting baseline training loss."
+                    )
+
+                previous_loss = avg_loss
 
         return y
 
@@ -1005,14 +1382,23 @@ class FineTuneGenLLMClassifier(FineTuneLLMEmbeddingClassifier):
         inner_model: algorithm(*[Prompt, GeneratedText], include=["transformer"]),  # type: ignore
         batch_size: CategoricalValue(2, 4, 8, 16, 32, 64, 128, 256),  # type: ignore
         max_length: CategoricalValue(64, 128, 256, 512, 1024, 2048, 4096),  # type: ignore
-        learning_rate: CategoricalValue(1e-5, 2e-5, 3e-5, 4e-5, 5e-5, 1e-4, 1e-6),  # type: ignore
+        learning_rate: CategoricalValue(5e-6, 1e-5, 2e-5, 3e-5, 4e-5, 5e-5, 1e-4),  # type: ignore
         epochs: DiscreteValue(1, 10),  # type: ignore
-        warmup_steps: CategoricalValue(0, 100, 500, 1000, 2000),  # type: ignore
-        weight_decay: CategoricalValue(0, 0.01, 0.1),  # type: ignore
-        optimizer: CategoricalValue("adamw", "adam", "sgd", "adagrad"),  # type: ignore
+        warmup_steps: CategoricalValue(0, 100, 500, 1000, 1500, 2000),  # type: ignore
+        weight_decay: CategoricalValue(0, 0.001, 0.005, 0.01, 0.1),  # type: ignore
         dropout_rate: CategoricalValue(0.1, 0.2, 0.3, 0.4, 0.5),  # type: ignore
+        optimizer: CategoricalValue("adamw", "adam", "sgd", "adagrad"),  # type: ignore
         gradient_accumulation_steps: CategoricalValue(1, 2, 4, 8, 16),  # type: ignore
         lr_scheduler: CategoricalValue("linear", "cosine", "cosine_with_restarts", "polynomial", "constant"),  # type: ignore
+        # New parameters to control features
+        use_early_stopping: BooleanValue(),  # type: ignore
+        early_stopping_patience: DiscreteValue(1, 10),  # type: ignore
+        early_stopping_delta: CategoricalValue(0.0, 0.001, 0.005, 0.01),  # type: ignore
+        use_mixed_precision: BooleanValue(),  # type: ignore
+        use_gradient_clipping: BooleanValue(),  # type: ignore
+        gradient_clipping_max_norm: CategoricalValue(0.5, 1.0, 5.0),  # type: ignore
+        class_weighted_loss: BooleanValue(),  # type: ignore
+        num_workers: CategoricalValue("all", "3/4", "half", "1/4", "default"),  # type: ignore
     ):
         super().__init__(
             inner_model,
@@ -1026,6 +1412,15 @@ class FineTuneGenLLMClassifier(FineTuneLLMEmbeddingClassifier):
             optimizer,
             gradient_accumulation_steps,
             lr_scheduler,
+            # New parameters to control features
+            use_early_stopping,
+            early_stopping_patience,
+            early_stopping_delta,
+            use_mixed_precision,
+            use_gradient_clipping,
+            gradient_clipping_max_norm,
+            class_weighted_loss,
+            num_workers,
         )
 
 
@@ -1034,17 +1429,26 @@ class PartialFineTuneGenLLMClassifier(PartialFineTuneLLMEmbeddingClassifier):
     def __init__(
         self,
         inner_model: algorithm(*[Prompt, GeneratedText], include=["transformer"]),  # type: ignore
-        num_trainable_layers: CategoricalValue(0, 2, 4, 8, 16, 32, 64),  # type: ignore
+        num_trainable_layers: CategoricalValue(1, 2, 4, 8, 16, 32, 64),  # type: ignore
         batch_size: CategoricalValue(2, 4, 8, 16, 32, 64, 128, 256),  # type: ignore
         max_length: CategoricalValue(64, 128, 256, 512, 1024, 2048, 4096),  # type: ignore
-        learning_rate: CategoricalValue(1e-5, 2e-5, 3e-5, 4e-5, 5e-5, 1e-4, 1e-6),  # type: ignore
+        learning_rate: CategoricalValue(5e-6, 1e-5, 2e-5, 3e-5, 4e-5, 5e-5, 1e-4),  # type: ignore
         epochs: DiscreteValue(1, 10),  # type: ignore
-        warmup_steps: CategoricalValue(0, 100, 500, 1000, 2000),  # type: ignore
-        weight_decay: CategoricalValue(0, 0.01, 0.1),  # type: ignore
+        warmup_steps: CategoricalValue(0, 100, 500, 1000, 1500, 2000),  # type: ignore
+        weight_decay: CategoricalValue(0, 0.001, 0.005, 0.01, 0.1),  # type: ignore
         optimizer: CategoricalValue("adamw", "adam", "sgd", "adagrad"),  # type: ignore
         dropout_rate: CategoricalValue(0.1, 0.2, 0.3, 0.4, 0.5),  # type: ignore
         gradient_accumulation_steps: CategoricalValue(1, 2, 4, 8, 16),  # type: ignore
         lr_scheduler: CategoricalValue("linear", "cosine", "cosine_with_restarts", "polynomial", "constant"),  # type: ignore
+        # New parameters to control features
+        use_early_stopping: BooleanValue(),  # type: ignore
+        early_stopping_patience: DiscreteValue(1, 10),  # type: ignore
+        early_stopping_delta: CategoricalValue(0.0, 0.001, 0.005, 0.01),  # type: ignore
+        use_mixed_precision: BooleanValue(),  # type: ignore
+        use_gradient_clipping: BooleanValue(),  # type: ignore
+        gradient_clipping_max_norm: CategoricalValue(0.5, 1.0, 5.0),  # type: ignore
+        class_weighted_loss: BooleanValue(),  # type: ignore
+        num_workers: CategoricalValue("all", "3/4", "half", "1/4", "default"),  # type: ignore
     ):
         super().__init__(
             inner_model,
@@ -1055,10 +1459,19 @@ class PartialFineTuneGenLLMClassifier(PartialFineTuneLLMEmbeddingClassifier):
             epochs,
             warmup_steps,
             weight_decay,
-            dropout_rate,
             optimizer,
+            dropout_rate,
             gradient_accumulation_steps,
             lr_scheduler,
+            # New parameters to control features
+            use_early_stopping,
+            early_stopping_patience,
+            early_stopping_delta,
+            use_mixed_precision,
+            use_gradient_clipping,
+            gradient_clipping_max_norm,
+            class_weighted_loss,
+            num_workers,
         )
 
 
@@ -1073,16 +1486,25 @@ class LoraGenLLMClassifier(LoraLLMEmbeddingClassifier):
         lora_bias: CategoricalValue("none", "all"),  # type: ignore
         batch_size: CategoricalValue(2, 4, 8, 16, 32, 64, 128, 256),  # type: ignore
         max_length: CategoricalValue(64, 128, 256, 512, 1024, 2048, 4096),  # type: ignore
-        learning_rate: CategoricalValue(1e-5, 2e-5, 3e-5, 4e-5, 5e-5, 1e-4, 1e-6),  # type: ignore
+        learning_rate: CategoricalValue(5e-6, 1e-5, 2e-5, 3e-5, 4e-5, 5e-5, 1e-4),  # type: ignore
         epochs: DiscreteValue(1, 10),  # type: ignore
-        warmup_steps: CategoricalValue(0, 100, 500, 1000, 2000),  # type: ignore
-        weight_decay: CategoricalValue(0, 0.01, 0.1),  # type: ignore
+        warmup_steps: CategoricalValue(0, 100, 500, 1000, 1500, 2000),  # type: ignore
+        weight_decay: CategoricalValue(0, 0.001, 0.005, 0.01, 0.1),  # type: ignore
         optimizer: CategoricalValue("adamw", "adam", "sgd", "adagrad"),  # type: ignore
         gradient_accumulation_steps: CategoricalValue(1, 2, 4, 8, 16),  # type: ignore
         lr_scheduler: CategoricalValue("linear", "cosine", "cosine_with_restarts", "polynomial", "constant"),  # type: ignore
         model_save: CategoricalValue("classifier", "all"),  # type: ignore
         init_lora_weights: CategoricalValue("gaussian", "pissa", "loftq", None),  # type: ignore
         fan_in_fan_out: CategoricalValue(True, False),  # type: ignore
+        # New parameters to control features
+        use_early_stopping: BooleanValue(),  # type: ignore
+        early_stopping_patience: DiscreteValue(1, 10),  # type: ignore
+        early_stopping_delta: CategoricalValue(0.0, 0.001, 0.005, 0.01),  # type: ignore
+        use_mixed_precision: BooleanValue(),  # type: ignore
+        use_gradient_clipping: BooleanValue(),  # type: ignore
+        gradient_clipping_max_norm: CategoricalValue(0.5, 1.0, 5.0),  # type: ignore
+        class_weighted_loss: BooleanValue(),  # type: ignore
+        num_workers: CategoricalValue("all", "3/4", "half", "1/4", "default"),  # type: ignore
     ):
         super().__init__(
             inner_model,
@@ -1102,4 +1524,12 @@ class LoraGenLLMClassifier(LoraLLMEmbeddingClassifier):
             model_save,
             init_lora_weights,
             fan_in_fan_out,
+            use_early_stopping,
+            early_stopping_patience,
+            early_stopping_delta,
+            use_mixed_precision,
+            use_gradient_clipping,
+            gradient_clipping_max_norm,
+            class_weighted_loss,
+            num_workers,
         )
