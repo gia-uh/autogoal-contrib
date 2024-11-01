@@ -2,3 +2,5 @@ __pycache__/
 
 models--*/
 tmp*
+autogoal_gensim/autogoal_gensim/fasttext-spanish-swbc.bin
+autogoal_gensim/autogoal_gensim/glove-spanish-swbc.bin

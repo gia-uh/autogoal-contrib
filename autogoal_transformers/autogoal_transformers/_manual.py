@@ -513,7 +513,9 @@ class FineTunerBase(AlgorithmBase):
         inner_model_name = inner_model.name
         print(f"Initializing model: {inner_model_name}")
         assert isinstance(inner_model_name, str), "Model name must be a string"
-        assert isinstance(num_labels, int) and num_labels > 0, "num_labels must be a positive integer"
+        assert (
+            isinstance(num_labels, int) and num_labels > 0
+        ), "num_labels must be a positive integer"
 
         self.config = AutoConfig.from_pretrained(
             inner_model_name,
@@ -526,9 +528,11 @@ class FineTunerBase(AlgorithmBase):
             ),
             trust_remote_code=True,
         )
-        
+
         try:
-            self.tokenizer = AutoTokenizer.from_pretrained(inner_model_name, use_fast=True)
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                inner_model_name, use_fast=True
+            )
         except Exception as e:
             print(f"Error loading tokenizer for model '{inner_model_name}': {e}")
             raise e
@@ -542,7 +546,7 @@ class FineTunerBase(AlgorithmBase):
         except Exception as e:
             print(f"Error loading model for '{inner_model_name}': {e}")
             raise e
-        
+
         self.model.to(self.device)
 
         if self.tokenizer.pad_token is None:
@@ -563,7 +567,6 @@ class FineTunerBase(AlgorithmBase):
         import math
         import os
 
-        print("here2")
         total_cpus = os.cpu_count()
         if num_workers_option == "all":
             return total_cpus
@@ -693,7 +696,7 @@ class FineTuneLLMEmbeddingClassifier(FineTunerBase):
         use_gradient_clipping: BooleanValue(),  # type: ignore
         gradient_clipping_max_norm: CategoricalValue(0.5, 1.0, 5.0),  # type: ignore
         class_weighted_loss: BooleanValue(),  # type: ignore
-        num_workers: CategoricalValue("all", "3/4", "half", "1/4", "default"),  # type: ignore
+        num_workers: CategoricalValue("3/4", "half", "1/4", "default"),  # type: ignore
     ):
         self.model = None
         self.tokenizer = None
@@ -797,18 +800,18 @@ class FineTuneLLMEmbeddingClassifier(FineTunerBase):
                 else:
                     loss.backward()
 
-                # Gradient clipping
-                if self.use_gradient_clipping:
-                    if use_mixed_precision:
-                        scaler.unscale_(optimizer)
-                    nn.utils.clip_grad_norm_(
-                        self.model.parameters(),
-                        max_norm=self.gradient_clipping_max_norm,
-                    )
-
                 if (step + 1) % self.gradient_accumulation_steps == 0 or (
                     step + 1
                 ) == len(dataloader):
+                    # Gradient clipping
+                    if self.use_gradient_clipping:
+                        if use_mixed_precision:
+                            scaler.unscale_(optimizer)
+                        nn.utils.clip_grad_norm_(
+                            self.model.parameters(),
+                            max_norm=self.gradient_clipping_max_norm,
+                        )
+
                     if use_mixed_precision:
                         scaler.step(optimizer)
                         scaler.update()
@@ -874,7 +877,7 @@ class PartialFineTuneLLMEmbeddingClassifier(FineTunerBase):
         use_gradient_clipping: BooleanValue(),  # type: ignore
         gradient_clipping_max_norm: CategoricalValue(0.5, 1.0, 5.0),  # type: ignore
         class_weighted_loss: BooleanValue(),  # type: ignore
-        num_workers: CategoricalValue("all", "3/4", "half", "1/4", "default"),  # type: ignore
+        num_workers: CategoricalValue("3/4", "half", "1/4", "default"),  # type: ignore
     ):
         self.model = None
         self.tokenizer = None
@@ -1074,18 +1077,18 @@ class PartialFineTuneLLMEmbeddingClassifier(FineTunerBase):
                 else:
                     loss.backward()
 
-                # Gradient clipping
-                if self.use_gradient_clipping:
-                    if use_mixed_precision:
-                        scaler.unscale_(optimizer)
-                    nn.utils.clip_grad_norm_(
-                        self.model.parameters(),
-                        max_norm=self.gradient_clipping_max_norm,
-                    )
-
                 if (step + 1) % self.gradient_accumulation_steps == 0 or (
                     step + 1
                 ) == len(dataloader):
+                    # Gradient clipping
+                    if self.use_gradient_clipping:
+                        if use_mixed_precision:
+                            scaler.unscale_(optimizer)
+                        nn.utils.clip_grad_norm_(
+                            self.model.parameters(),
+                            max_norm=self.gradient_clipping_max_norm,
+                        )
+                        
                     if use_mixed_precision:
                         scaler.step(optimizer)
                         scaler.update()
@@ -1156,7 +1159,7 @@ class LoraLLMEmbeddingClassifier(FineTunerBase):
         use_gradient_clipping: BooleanValue(),  # type: ignore
         gradient_clipping_max_norm: CategoricalValue(0.5, 1.0, 5.0),  # type: ignore
         class_weighted_loss: BooleanValue(),  # type: ignore
-        num_workers: CategoricalValue("all", "3/4", "half", "1/4", "default"),  # type: ignore
+        num_workers: CategoricalValue("3/4", "half", "1/4", "default"),  # type: ignore
     ):
         self.model = None
         self.tokenizer = None
@@ -1247,11 +1250,11 @@ class LoraLLMEmbeddingClassifier(FineTunerBase):
     def finetune(self, X, y):
         X, y = self._preprocess_input(X, y)
         num_labels = len(np.unique(y))
-        
+
         self.init_model(self.inner_model, num_labels)
-        
+
         self.set_lora_config()
-        
+
         # Handle class imbalance
         if self.class_weighted_loss:
             y_int = np.array(y, dtype=int)
@@ -1264,7 +1267,7 @@ class LoraLLMEmbeddingClassifier(FineTunerBase):
 
         # Create dataset and dataloader
         dataset = SimpleTextDataset(X, y, self.tokenizer, max_length=self.max_length)
-        
+
         num_workers = self.get_num_workers(self.num_workers)
 
         dataloader = DataLoader(
@@ -1273,11 +1276,11 @@ class LoraLLMEmbeddingClassifier(FineTunerBase):
             shuffle=True,
             num_workers=num_workers,
         )
-        
+
         optimizer = self.setup_optimizer()
-        
+
         total_steps = len(dataloader) * self.epochs
-        
+
         scheduler = self.setup_scheduler(optimizer, total_steps)
 
         # Initialize early stopping variables
@@ -1322,18 +1325,18 @@ class LoraLLMEmbeddingClassifier(FineTunerBase):
                 else:
                     loss.backward()
 
-                # Gradient clipping
-                if self.use_gradient_clipping:
-                    if use_mixed_precision:
-                        scaler.unscale_(optimizer)
-                    nn.utils.clip_grad_norm_(
-                        self.model.parameters(),
-                        max_norm=self.gradient_clipping_max_norm,
-                    )
-
                 if (step + 1) % self.gradient_accumulation_steps == 0 or (
                     step + 1
                 ) == len(dataloader):
+                    # Gradient clipping
+                    if self.use_gradient_clipping:
+                        if use_mixed_precision:
+                            scaler.unscale_(optimizer)
+                        nn.utils.clip_grad_norm_(
+                            self.model.parameters(),
+                            max_norm=self.gradient_clipping_max_norm,
+                        )
+                        
                     if use_mixed_precision:
                         scaler.step(optimizer)
                         scaler.update()
@@ -1398,7 +1401,7 @@ class FineTuneGenLLMClassifier(FineTuneLLMEmbeddingClassifier):
         use_gradient_clipping: BooleanValue(),  # type: ignore
         gradient_clipping_max_norm: CategoricalValue(0.5, 1.0, 5.0),  # type: ignore
         class_weighted_loss: BooleanValue(),  # type: ignore
-        num_workers: CategoricalValue("all", "3/4", "half", "1/4", "default"),  # type: ignore
+        num_workers: CategoricalValue("3/4", "half", "1/4", "default"),  # type: ignore
     ):
         super().__init__(
             inner_model,
@@ -1448,7 +1451,7 @@ class PartialFineTuneGenLLMClassifier(PartialFineTuneLLMEmbeddingClassifier):
         use_gradient_clipping: BooleanValue(),  # type: ignore
         gradient_clipping_max_norm: CategoricalValue(0.5, 1.0, 5.0),  # type: ignore
         class_weighted_loss: BooleanValue(),  # type: ignore
-        num_workers: CategoricalValue("all", "3/4", "half", "1/4", "default"),  # type: ignore
+        num_workers: CategoricalValue("3/4", "half", "1/4", "default"),  # type: ignore
     ):
         super().__init__(
             inner_model,
@@ -1504,7 +1507,7 @@ class LoraGenLLMClassifier(LoraLLMEmbeddingClassifier):
         use_gradient_clipping: BooleanValue(),  # type: ignore
         gradient_clipping_max_norm: CategoricalValue(0.5, 1.0, 5.0),  # type: ignore
         class_weighted_loss: BooleanValue(),  # type: ignore
-        num_workers: CategoricalValue("all", "3/4", "half", "1/4", "default"),  # type: ignore
+        num_workers: CategoricalValue("3/4", "half", "1/4", "default"),  # type: ignore
     ):
         super().__init__(
             inner_model,
