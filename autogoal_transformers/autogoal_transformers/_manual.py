@@ -80,11 +80,10 @@ class TGenerationBasedPretrainedEmbedder(AlgorithmBase):
         super().__init__()
         self.pretrained_text_generator = pretrained_text_generator
         self.batch_size = 128  # self.pretrained_text_generator.batch_size
-        self.device = (
-            torch.device("cuda")
-            if torch.cuda.is_available() and is_cuda_multiprocessing_enabled()
-            else torch.device("cpu")
-        )
+        self.device = torch.cuda.current_device() if torch.cuda.is_available() and is_cuda_multiprocessing_enabled() else torch.device("cpu")
+        self.device = torch.cuda._get_device(self.device)
+        device_name = torch.cuda.get_device_name(self.device)
+        print(f"Using device {self.device}: {device_name}")
 
     def run(self, X: Seq[Sentence]) -> MatrixContinuousDense:
         self.pretrained_text_generator.init_model()
@@ -131,11 +130,10 @@ class CARPClassifier(TransformersWrapper):
         self.batch_size = self.pretrained_text_generator.batch_size
         self.few_shots_amount = few_shots_amount
         self.training_examples_selection_method = training_examples_selection_method
-        self.device = (
-            torch.device("cuda")
-            if torch.cuda.is_available() and is_cuda_multiprocessing_enabled()
-            else torch.device("cpu")
-        )
+        self.device = torch.cuda.current_device() if torch.cuda.is_available() and is_cuda_multiprocessing_enabled() else torch.device("cpu")
+        self.device = torch.cuda._get_device(self.device)
+        device_name = torch.cuda.get_device_name(self.device)
+        print(f"Using device {self.device}: {device_name}")
 
     def _train(self, X, y):
         self.pretrained_text_generator.init_model()
@@ -303,11 +301,10 @@ class GenerativeClassifier(TransformersWrapper):
         self.zero_shot = zero_shot
         self.few_shots_amount = few_shots_amount
         self.training_examples_selection_method = training_examples_selection_method
-        self.device = (
-            torch.device("cuda")
-            if torch.cuda.is_available() and is_cuda_multiprocessing_enabled()
-            else torch.device("cpu")
-        )
+        self.device = torch.cuda.current_device() if torch.cuda.is_available() and is_cuda_multiprocessing_enabled() else torch.device("cpu")
+        self.device = torch.cuda._get_device(self.device)
+        device_name = torch.cuda.get_device_name(self.device)
+        print(f"Using device {self.device}: {device_name}")
 
     def _train(self, X, y):
         self.pretrained_text_generator.init_model()
@@ -409,11 +406,10 @@ class DocumentEmbedder(AlgorithmBase):
         self.sent_tokenizer = sent_tokenizer
         self.pooling = pooling
         self.normalization_strategy = normalization_strategy
-        self.device = (
-            torch.device("cuda:0")
-            if torch.cuda.is_available() and is_cuda_multiprocessing_enabled()
-            else torch.device("cpu")
-        )
+        self.device = torch.cuda.current_device() if torch.cuda.is_available() and is_cuda_multiprocessing_enabled() else torch.device("cpu")
+        self.device = torch.cuda._get_device(self.device)
+        device_name = torch.cuda.get_device_name(self.device)
+        print(f"Using device {self.device}: {device_name}")
 
     def run(self, X: Seq[Document]) -> MatrixContinuousDense:
         all_sentences = []  # To store all sentences from all documents
@@ -489,14 +485,12 @@ class FineTunerBase(AlgorithmBase):
         self,
     ):
         self._mode = "train"
-        self.device = (
-            torch.device("cuda:0")
-            if torch.cuda.is_available() and is_cuda_multiprocessing_enabled()
-            else torch.device("cpu")
-        )
+        self.device = torch.cuda.current_device() if torch.cuda.is_available() and is_cuda_multiprocessing_enabled() else torch.device("cpu")
+        self.device = torch.cuda._get_device(self.device)
+        device_name = torch.cuda.get_device_name(self.device)
+        print(f"Using device {self.device}: {device_name}")
 
         import os
-
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
     def train(self):

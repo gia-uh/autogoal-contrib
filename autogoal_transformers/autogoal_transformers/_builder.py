@@ -58,11 +58,9 @@ class TransformersWrapper(AlgorithmBase):
 
     def __init__(self):
         self._mode = "train"
-        self.device = (
-            torch.device("cuda")
-            if torch.cuda.is_available() and is_cuda_multiprocessing_enabled()
-            else torch.device("cpu")
-        )
+        self.device = torch.cuda.current_device() if torch.cuda.is_available() and is_cuda_multiprocessing_enabled() else torch.device("cpu")
+        device_name = torch.cuda.get_device_name(self.device)
+        self.print(f"Using device {self.device}: {device_name}")
 
     def train(self):
         self._mode = "train"
@@ -383,13 +381,10 @@ class PretrainedTextGeneration(TransformersWrapper):
         *,
         verbose=False,
     ):
-        self.device = (
-            torch.device("cuda:0")
-            if torch.cuda.is_available() and is_cuda_multiprocessing_enabled()
-            else torch.device("cpu")
-        )
+        self.device = torch.cuda.current_device() if torch.cuda.is_available() and is_cuda_multiprocessing_enabled() else torch.device("cpu")
+        device_name = torch.cuda.get_device_name(self.device)
+        self.print(f"Using device {self.device}: {device_name}")
         self.verbose = verbose
-        self.print("Using device: %s" % self.device)
         self.model = None
         self.tokenizer = None
         self.batch_size = batch_size
