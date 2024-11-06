@@ -83,7 +83,6 @@ class TGenerationBasedPretrainedEmbedder(AlgorithmBase):
         self.device = torch.cuda.current_device() if torch.cuda.is_available() and is_cuda_multiprocessing_enabled() else torch.device("cpu")
         self.device = torch.cuda._get_device(self.device)
         device_name = torch.cuda.get_device_name(self.device)
-        print(f"Using device {self.device}: {device_name}")
 
     def run(self, X: Seq[Sentence]) -> MatrixContinuousDense:
         self.pretrained_text_generator.init_model()
@@ -133,7 +132,6 @@ class CARPClassifier(TransformersWrapper):
         self.device = torch.cuda.current_device() if torch.cuda.is_available() and is_cuda_multiprocessing_enabled() else torch.device("cpu")
         self.device = torch.cuda._get_device(self.device)
         device_name = torch.cuda.get_device_name(self.device)
-        print(f"Using device {self.device}: {device_name}")
 
     def _train(self, X, y):
         self.pretrained_text_generator.init_model()
@@ -304,7 +302,6 @@ class GenerativeClassifier(TransformersWrapper):
         self.device = torch.cuda.current_device() if torch.cuda.is_available() and is_cuda_multiprocessing_enabled() else torch.device("cpu")
         self.device = torch.cuda._get_device(self.device)
         device_name = torch.cuda.get_device_name(self.device)
-        print(f"Using device {self.device}: {device_name}")
 
     def _train(self, X, y):
         self.pretrained_text_generator.init_model()
@@ -409,7 +406,6 @@ class DocumentEmbedder(AlgorithmBase):
         self.device = torch.cuda.current_device() if torch.cuda.is_available() and is_cuda_multiprocessing_enabled() else torch.device("cpu")
         self.device = torch.cuda._get_device(self.device)
         device_name = torch.cuda.get_device_name(self.device)
-        print(f"Using device {self.device}: {device_name}")
 
     def run(self, X: Seq[Document]) -> MatrixContinuousDense:
         all_sentences = []  # To store all sentences from all documents
@@ -488,7 +484,6 @@ class FineTunerBase(AlgorithmBase):
         self.device = torch.cuda.current_device() if torch.cuda.is_available() and is_cuda_multiprocessing_enabled() else torch.device("cpu")
         self.device = torch.cuda._get_device(self.device)
         device_name = torch.cuda.get_device_name(self.device)
-        print(f"Using device {self.device}: {device_name}")
 
         import os
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
