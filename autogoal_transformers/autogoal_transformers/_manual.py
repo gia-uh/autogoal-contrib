@@ -678,9 +678,9 @@ class FineTuneLLMEmbeddingClassifier(FineTunerBase):
         gradient_accumulation_steps: CategoricalValue(1, 2, 4, 8, 16),  # type: ignore
         lr_scheduler: CategoricalValue("linear", "cosine", "cosine_with_restarts", "polynomial", "constant"),  # type: ignore
         # New parameters to control features
-        use_early_stopping: BooleanValue(),  # type: ignore
-        early_stopping_patience: DiscreteValue(1, 10),  # type: ignore
-        early_stopping_delta: CategoricalValue(0.0, 0.001, 0.005, 0.01),  # type: ignore
+        # use_early_stopping: BooleanValue(),  # type: ignore
+        # early_stopping_patience: DiscreteValue(1, 10),  # type: ignore
+        early_stopping_delta: CategoricalValue(0.001, 0.005, 0.01),  # type: ignore
         use_mixed_precision: BooleanValue(),  # type: ignore
         use_gradient_clipping: BooleanValue(),  # type: ignore
         gradient_clipping_max_norm: CategoricalValue(0.5, 1.0, 5.0),  # type: ignore
@@ -702,8 +702,8 @@ class FineTuneLLMEmbeddingClassifier(FineTunerBase):
         self.lr_scheduler = lr_scheduler
 
         # New parameters for added features
-        self.use_early_stopping = use_early_stopping
-        self.early_stopping_patience = early_stopping_patience
+        self.use_early_stopping = True
+        self.early_stopping_patience = 2
         self.early_stopping_delta = early_stopping_delta
         self.use_mixed_precision = use_mixed_precision
         self.use_gradient_clipping = use_gradient_clipping
@@ -859,9 +859,9 @@ class PartialFineTuneLLMEmbeddingClassifier(FineTunerBase):
         gradient_accumulation_steps: CategoricalValue(1, 2, 4, 8, 16),  # type: ignore
         lr_scheduler: CategoricalValue("linear", "cosine", "cosine_with_restarts", "polynomial", "constant"),  # type: ignore
         # New parameters to control features
-        use_early_stopping: BooleanValue(),  # type: ignore
-        early_stopping_patience: DiscreteValue(1, 10),  # type: ignore
-        early_stopping_delta: CategoricalValue(0.0, 0.001, 0.005, 0.01),  # type: ignore
+        # use_early_stopping: BooleanValue(),  # type: ignore
+        # early_stopping_patience: DiscreteValue(1, 10),  # type: ignore
+        early_stopping_delta: CategoricalValue(0.001, 0.005, 0.01),  # type: ignore
         use_mixed_precision: BooleanValue(),  # type: ignore
         use_gradient_clipping: BooleanValue(),  # type: ignore
         gradient_clipping_max_norm: CategoricalValue(0.5, 1.0, 5.0),  # type: ignore
@@ -884,8 +884,8 @@ class PartialFineTuneLLMEmbeddingClassifier(FineTunerBase):
         self.lr_scheduler = lr_scheduler
 
         # New parameters for added features
-        self.use_early_stopping = use_early_stopping
-        self.early_stopping_patience = early_stopping_patience
+        self.use_early_stopping = True
+        self.early_stopping_patience = 2
         self.early_stopping_delta = early_stopping_delta
         self.use_mixed_precision = use_mixed_precision
         self.use_gradient_clipping = use_gradient_clipping
@@ -1141,9 +1141,9 @@ class LoraLLMEmbeddingClassifier(FineTunerBase):
         init_lora_weights: CategoricalValue("gaussian", "pissa", "loftq", None),  # type: ignore
         fan_in_fan_out: CategoricalValue(True, False),  # type: ignore
         # New parameters to control features
-        use_early_stopping: BooleanValue(),  # type: ignore
-        early_stopping_patience: DiscreteValue(1, 10),  # type: ignore
-        early_stopping_delta: CategoricalValue(0.0, 0.001, 0.005, 0.01),  # type: ignore
+        # use_early_stopping: BooleanValue(),  # type: ignore
+        # early_stopping_patience: DiscreteValue(1, 10),  # type: ignore
+        early_stopping_delta: CategoricalValue(0.001, 0.005, 0.01),  # type: ignore
         use_mixed_precision: BooleanValue(),  # type: ignore
         use_gradient_clipping: BooleanValue(),  # type: ignore
         gradient_clipping_max_norm: CategoricalValue(0.5, 1.0, 5.0),  # type: ignore
@@ -1171,8 +1171,8 @@ class LoraLLMEmbeddingClassifier(FineTunerBase):
         self.fan_in_fan_out = fan_in_fan_out
 
         # New parameters for added features
-        self.use_early_stopping = use_early_stopping
-        self.early_stopping_patience = early_stopping_patience
+        self.use_early_stopping = True
+        self.early_stopping_patience = 2
         self.early_stopping_delta = early_stopping_delta
         self.use_mixed_precision = use_mixed_precision
         self.use_gradient_clipping = use_gradient_clipping
@@ -1383,9 +1383,9 @@ class FineTuneGenLLMClassifier(FineTuneLLMEmbeddingClassifier):
         gradient_accumulation_steps: CategoricalValue(1, 2, 4, 8, 16),  # type: ignore
         lr_scheduler: CategoricalValue("linear", "cosine", "cosine_with_restarts", "polynomial", "constant"),  # type: ignore
         # New parameters to control features
-        use_early_stopping: BooleanValue(),  # type: ignore
-        early_stopping_patience: DiscreteValue(1, 10),  # type: ignore
-        early_stopping_delta: CategoricalValue(0.0, 0.001, 0.005, 0.01),  # type: ignore
+        # use_early_stopping: BooleanValue(),  # type: ignore
+        # early_stopping_patience: DiscreteValue(1, 10),  # type: ignore
+        early_stopping_delta: CategoricalValue(0.001, 0.005, 0.01),  # type: ignore
         use_mixed_precision: BooleanValue(),  # type: ignore
         use_gradient_clipping: BooleanValue(),  # type: ignore
         gradient_clipping_max_norm: CategoricalValue(0.5, 1.0, 5.0),  # type: ignore
@@ -1405,8 +1405,6 @@ class FineTuneGenLLMClassifier(FineTuneLLMEmbeddingClassifier):
             gradient_accumulation_steps,
             lr_scheduler,
             # New parameters to control features
-            use_early_stopping,
-            early_stopping_patience,
             early_stopping_delta,
             use_mixed_precision,
             use_gradient_clipping,
@@ -1433,9 +1431,9 @@ class PartialFineTuneGenLLMClassifier(PartialFineTuneLLMEmbeddingClassifier):
         gradient_accumulation_steps: CategoricalValue(1, 2, 4, 8, 16),  # type: ignore
         lr_scheduler: CategoricalValue("linear", "cosine", "cosine_with_restarts", "polynomial", "constant"),  # type: ignore
         # New parameters to control features
-        use_early_stopping: BooleanValue(),  # type: ignore
-        early_stopping_patience: DiscreteValue(1, 10),  # type: ignore
-        early_stopping_delta: CategoricalValue(0.0, 0.001, 0.005, 0.01),  # type: ignore
+        # use_early_stopping: BooleanValue(),  # type: ignore
+        # early_stopping_patience: DiscreteValue(1, 10),  # type: ignore
+        early_stopping_delta: CategoricalValue(0.001, 0.005, 0.01),  # type: ignore
         use_mixed_precision: BooleanValue(),  # type: ignore
         use_gradient_clipping: BooleanValue(),  # type: ignore
         gradient_clipping_max_norm: CategoricalValue(0.5, 1.0, 5.0),  # type: ignore
@@ -1456,8 +1454,6 @@ class PartialFineTuneGenLLMClassifier(PartialFineTuneLLMEmbeddingClassifier):
             gradient_accumulation_steps,
             lr_scheduler,
             # New parameters to control features
-            use_early_stopping,
-            early_stopping_patience,
             early_stopping_delta,
             use_mixed_precision,
             use_gradient_clipping,
@@ -1489,9 +1485,9 @@ class LoraGenLLMClassifier(LoraLLMEmbeddingClassifier):
         init_lora_weights: CategoricalValue("gaussian", "pissa", "loftq", None),  # type: ignore
         fan_in_fan_out: CategoricalValue(True, False),  # type: ignore
         # New parameters to control features
-        use_early_stopping: BooleanValue(),  # type: ignore
-        early_stopping_patience: DiscreteValue(1, 10),  # type: ignore
-        early_stopping_delta: CategoricalValue(0.0, 0.001, 0.005, 0.01),  # type: ignore
+        # use_early_stopping: BooleanValue(),  # type: ignore
+        # early_stopping_patience: DiscreteValue(1, 10),  # type: ignore
+        early_stopping_delta: CategoricalValue(0.001, 0.005, 0.01),  # type: ignore
         use_mixed_precision: BooleanValue(),  # type: ignore
         use_gradient_clipping: BooleanValue(),  # type: ignore
         gradient_clipping_max_norm: CategoricalValue(0.5, 1.0, 5.0),  # type: ignore
@@ -1516,8 +1512,6 @@ class LoraGenLLMClassifier(LoraLLMEmbeddingClassifier):
             model_save,
             init_lora_weights,
             fan_in_fan_out,
-            use_early_stopping,
-            early_stopping_patience,
             early_stopping_delta,
             use_mixed_precision,
             use_gradient_clipping,
