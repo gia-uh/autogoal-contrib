@@ -2,3 +2,11 @@ __pycache__/
 
 models--*/
 tmp*
+
+# macOS junk
+.DS_Store
+# Python build artifacts
+build/
+dist/
+dist_release/
+*.egg-info/
