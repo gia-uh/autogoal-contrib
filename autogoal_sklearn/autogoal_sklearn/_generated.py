@@ -117,7 +117,7 @@ class MiniBatchKMeans(_MiniBatchKMeans, SklearnEstimator):
         n_clusters: DiscreteValue(min=1, max=15),
         init: CategoricalValue("random"),
         compute_labels: BooleanValue(),
-        tol: ContinuousValue(min=-0.992, max=0.992),
+        tol: ContinuousValue(min=0.0, max=0.992),
         max_no_improvement: DiscreteValue(min=1, max=19),
         reassignment_ratio: ContinuousValue(min=0.003, max=0.094),
     ):
@@ -303,7 +303,7 @@ class PCA(_PCA, SklearnTransformer):
         self,
         whiten: BooleanValue(),
         svd_solver: CategoricalValue("arpack", "auto", "full", "randomized"),
-        tol: ContinuousValue(min=-0.992, max=0.992),
+        tol: ContinuousValue(min=0.0, max=0.992),
         iterated_power: CategoricalValue("auto", "randomized"),
     ):
         SklearnTransformer.__init__(self)
@@ -334,7 +334,7 @@ class TruncatedSVD(_TruncatedSVD, SklearnTransformer):
         n_components: DiscreteValue(min=1, max=100) = 100,
         algorithm: CategoricalValue("arpack", "randomized") = "arpack",
         n_iter: DiscreteValue(min=1, max=9) = 5,
-        tol: ContinuousValue(min=-0.992, max=0.992) = 0.0,
+        tol: ContinuousValue(min=0.0, max=0.992) = 0.0,
     ):
         SklearnTransformer.__init__(self)
         _TruncatedSVD.__init__(
@@ -512,7 +512,7 @@ class ARDRegression(_ARDRegression, SklearnEstimator):
     def __init__(
         self,
         n_iter: DiscreteValue(min=1, max=599),
-        tol: ContinuousValue(min=-0.005, max=0.001),
+        tol: ContinuousValue(min=0.0, max=0.001),
         compute_score: BooleanValue(),
         threshold_lambda: ContinuousValue(min=-99999.993, max=99999.995),
         fit_intercept: BooleanValue(),
@@ -547,7 +547,7 @@ class BayesianRidge(_BayesianRidge, SklearnEstimator):
     def __init__(
         self,
         n_iter: DiscreteValue(min=1, max=599),
-        tol: ContinuousValue(min=-0.005, max=0.001),
+        tol: ContinuousValue(min=0.0, max=0.001),
         compute_score: BooleanValue(),
         fit_intercept: BooleanValue(),
     ):
@@ -657,41 +657,11 @@ class GammaRegressor(_GammaRegressor, SklearnEstimator):
         return SklearnEstimator.run(self, X, y)
 
 
-from sklearn.linear_model._glm.glm import (
-    GeneralizedLinearRegressor as _GeneralizedLinearRegressor,
-)
-
-
-class GeneralizedLinearRegressor(_GeneralizedLinearRegressor, SklearnEstimator):
-    def __init__(
-        self,
-        alpha: ContinuousValue(min=0.0, max=9.991),
-        fit_intercept: BooleanValue(),
-        family: CategoricalValue("normal", "poisson"),
-        link: CategoricalValue("auto", "identity", "log"),
-        solver: CategoricalValue("lbfgs"),
-    ):
-        SklearnEstimator.__init__(self)
-        _GeneralizedLinearRegressor.__init__(
-            self,
-            alpha=alpha,
-            fit_intercept=fit_intercept,
-            family=family,
-            link=link,
-            solver=solver,
-        )
-        self.init_params = {
-            "alpha": alpha,
-            "fit_intercept": fit_intercept,
-            "family": family,
-            "link": link,
-            "solver": solver,
-        }
-
-    def run(
-        self, X: MatrixContinuous, y: Supervised[VectorContinuous]
-    ) -> VectorContinuous:
-        return SklearnEstimator.run(self, X, y)
+# NOTE: scikit-learn >=1.1 made GeneralizedLinearRegressor private (_GeneralizedLinearRegressor)
+# and dropped its family/link constructor args, so the originally generated wrapper no longer
+# imports or constructs on sklearn 1.3.x. It is a regressor that no AutoGOAL text pipeline uses,
+# so its wrapper is removed to keep this module importable. Its concrete siblings PoissonRegressor
+# and TweedieRegressor (below) take only still-valid args and stay registered.
 
 
 from sklearn.linear_model._glm.glm import PoissonRegressor as _PoissonRegressor
@@ -860,8 +830,7 @@ from sklearn.linear_model._logistic import LogisticRegression as _LogisticRegres
 class LogisticRegression(_LogisticRegression, SklearnEstimator):
     def __init__(
         self,
-        penalty: CategoricalValue("l2", "none"),
-        dual: BooleanValue(),
+        penalty: CategoricalValue("l2"),
         C: ContinuousValue(min=0.005, max=9.991),
         fit_intercept: BooleanValue(),
         multi_class: CategoricalValue("auto", "multinomial", "ovr"),
@@ -870,14 +839,12 @@ class LogisticRegression(_LogisticRegression, SklearnEstimator):
         _LogisticRegression.__init__(
             self,
             penalty=penalty,
-            dual=dual,
             C=C,
             fit_intercept=fit_intercept,
             multi_class=multi_class,
         )
         self.init_params = {
             "penalty": penalty,
-            "dual": dual,
             "C": C,
             "fit_intercept": fit_intercept,
             "multi_class": multi_class,
@@ -918,9 +885,9 @@ from sklearn.linear_model._passive_aggressive import (
 class PassiveAggressiveClassifier(_PassiveAggressiveClassifier, SklearnEstimator):
     def __init__(
         self,
-        C: ContinuousValue(min=-9.995, max=9.991),
+        C: ContinuousValue(min=0.005, max=9.991),
         fit_intercept: BooleanValue(),
-        tol: ContinuousValue(min=-0.005, max=0.001),
+        tol: ContinuousValue(min=0.0, max=0.001),
         early_stopping: BooleanValue(),
         validation_fraction: ContinuousValue(min=0.006, max=0.993),
         n_iter_no_change: DiscreteValue(min=1, max=9),
@@ -964,14 +931,14 @@ from sklearn.linear_model._passive_aggressive import (
 class PassiveAggressiveRegressor(_PassiveAggressiveRegressor, SklearnEstimator):
     def __init__(
         self,
-        C: ContinuousValue(min=-9.995, max=9.991),
+        C: ContinuousValue(min=0.005, max=9.991),
         fit_intercept: BooleanValue(),
-        tol: ContinuousValue(min=-0.005, max=0.001),
+        tol: ContinuousValue(min=0.0, max=0.001),
         early_stopping: BooleanValue(),
         validation_fraction: ContinuousValue(min=0.006, max=0.993),
         n_iter_no_change: DiscreteValue(min=1, max=9),
         shuffle: BooleanValue(),
-        epsilon: ContinuousValue(min=-0.992, max=0.993),
+        epsilon: ContinuousValue(min=0.0, max=0.993),
         average: BooleanValue(),
     ):
         SklearnEstimator.__init__(self)
@@ -1013,7 +980,7 @@ class Perceptron(_Perceptron, SklearnEstimator):
         self,
         l1_ratio: ContinuousValue(min=0.001, max=0.999),
         fit_intercept: BooleanValue(),
-        tol: ContinuousValue(min=-0.005, max=0.001),
+        tol: ContinuousValue(min=0.0, max=0.001),
         shuffle: BooleanValue(),
         eta0: ContinuousValue(min=0.005, max=9.991),
         early_stopping: BooleanValue(),
@@ -1082,17 +1049,15 @@ class Ridge(_Ridge, SklearnEstimator):
     def __init__(
         self,
         fit_intercept: BooleanValue(),
-        solver: CategoricalValue("lsqr", "sag", "saga", "sparse_cg", "svd"),
-        positive: BooleanValue(),
+        solver: CategoricalValue("auto", "lsqr", "sag", "saga", "sparse_cg"),
     ):
         SklearnEstimator.__init__(self)
         _Ridge.__init__(
-            self, fit_intercept=fit_intercept, solver=solver, positive=positive
+            self, fit_intercept=fit_intercept, solver=solver
         )
         self.init_params = {
             "fit_intercept": fit_intercept,
             "solver": solver,
-            "positive": positive,
         }
 
     def run(
@@ -1108,17 +1073,15 @@ class RidgeClassifier(_RidgeClassifier, SklearnEstimator):
     def __init__(
         self,
         fit_intercept: BooleanValue(),
-        solver: CategoricalValue("lsqr", "sag", "saga", "sparse_cg", "svd"),
-        positive: BooleanValue(),
+        solver: CategoricalValue("auto", "lsqr", "sag", "saga", "sparse_cg"),
     ):
         SklearnEstimator.__init__(self)
         _RidgeClassifier.__init__(
-            self, fit_intercept=fit_intercept, solver=solver, positive=positive
+            self, fit_intercept=fit_intercept, solver=solver
         )
         self.init_params = {
             "fit_intercept": fit_intercept,
             "solver": solver,
-            "positive": positive,
         }
 
     def run(
@@ -1137,22 +1100,21 @@ class SGDClassifier(_SGDClassifier, SklearnEstimator):
             "epsilon_insensitive",
             "hinge",
             "huber",
-            "log",
+            "log_loss",
             "modified_huber",
             "perceptron",
             "squared_epsilon_insensitive",
             "squared_error",
             "squared_hinge",
-            "squared_loss",
         ),
         penalty: CategoricalValue("elasticnet", "l1", "l2"),
         l1_ratio: ContinuousValue(min=0.001, max=0.999),
         fit_intercept: BooleanValue(),
-        tol: ContinuousValue(min=-0.005, max=0.001),
+        tol: ContinuousValue(min=0.0, max=0.001),
         shuffle: BooleanValue(),
-        epsilon: ContinuousValue(min=-0.992, max=0.993),
+        epsilon: ContinuousValue(min=0.0, max=0.993),
         learning_rate: CategoricalValue("optimal"),
-        eta0: ContinuousValue(min=-0.992, max=0.992),
+        eta0: ContinuousValue(min=0.0, max=0.992),
         power_t: ContinuousValue(min=-4.995, max=4.991),
         early_stopping: BooleanValue(),
         validation_fraction: ContinuousValue(min=0.006, max=0.993),
@@ -1207,10 +1169,10 @@ class SGDOneClassSVM(_SGDOneClassSVM, SklearnEstimator):
     def __init__(
         self,
         fit_intercept: BooleanValue(),
-        tol: ContinuousValue(min=-0.005, max=0.001),
+        tol: ContinuousValue(min=0.0, max=0.001),
         shuffle: BooleanValue(),
         learning_rate: CategoricalValue("optimal"),
-        eta0: ContinuousValue(min=-0.992, max=0.992),
+        eta0: ContinuousValue(min=0.0, max=0.992),
         power_t: ContinuousValue(min=-4.995, max=4.991),
         average: BooleanValue(),
     ):
@@ -1255,9 +1217,9 @@ class SGDRegressor(_SGDRegressor, SklearnEstimator):
         penalty: CategoricalValue("elasticnet", "l1", "l2"),
         l1_ratio: ContinuousValue(min=0.001, max=0.999),
         fit_intercept: BooleanValue(),
-        tol: ContinuousValue(min=-0.005, max=0.001),
+        tol: ContinuousValue(min=0.0, max=0.001),
         shuffle: BooleanValue(),
-        epsilon: ContinuousValue(min=-0.992, max=0.993),
+        epsilon: ContinuousValue(min=0.0, max=0.993),
         learning_rate: CategoricalValue(
             "adaptive", "constant", "invscaling", "optimal"
         ),
@@ -1372,7 +1334,7 @@ class BernoulliNB(_BernoulliNB, SklearnEstimator):
     def __init__(
         self,
         alpha: ContinuousValue(min=0.0, max=9.991),
-        binarize: ContinuousValue(min=-0.992, max=0.992),
+        binarize: ContinuousValue(min=0.0, max=0.992),
         fit_prior: BooleanValue(),
     ):
         SklearnEstimator.__init__(self)
@@ -1895,7 +1857,7 @@ class LinearSVC(_LinearSVC, SklearnEstimator):
     def __init__(
         self,
         penalty: CategoricalValue("l2"),
-        loss: CategoricalValue("hinge", "squared_hinge"),
+        loss: CategoricalValue("squared_hinge"),
         dual: BooleanValue(),
         C: ContinuousValue(min=0.005, max=9.991),
         multi_class: CategoricalValue("crammer_singer", "ovr"),
